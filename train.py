@@ -1,6 +1,7 @@
 from pathlib import Path
 
 import pytorch_lightning as pl
+import torch
 import yaml
 from pytorch_lightning.callbacks import ModelCheckpoint
 from pytorch_lightning.loggers import TensorBoardLogger
@@ -10,6 +11,9 @@ from src.models.gan.dcgan import DCGAN
 
 
 def main():
+    if torch.cuda.is_available():
+        torch.set_float32_matmul_precision("medium")
+
     # Load config
     with open("configs/dcgan.yaml") as f:
         config = yaml.safe_load(f)

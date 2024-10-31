@@ -11,6 +11,8 @@ class Generator(nn.Module):
         self.latent_dim = latent_dim
         self.feature_maps = feature_maps
 
+        self.embedding = nn.Embedding(10, latent_dim)
+
         self.main = nn.Sequential(
             # Input is latent_dim x 1 x 1
             nn.ConvTranspose2d(latent_dim, feature_maps * 8, 4, 1, 0, bias=False),
@@ -77,7 +79,8 @@ class DCGAN(pl.LightningModule):
         self.discriminator = Discriminator(feature_maps)
 
         # Random noise for visualization
-        self.validation_z = torch.randn(8, latent_dim)
+        self.validation_z = torch.randn(10, latent_dim)
+        self.cls_embedding = self.generator.embedding(torch.arange(10))
 
     def forward(self, z):
         return self.generator(z)
@@ -87,14 +90,15 @@ class DCGAN(pl.LightningModule):
 
     def training_step(self, batch, batch_idx):
         opt_d, opt_g = self.optimizers()
-        real_imgs, _ = batch
+        real_imgs, cls_number = batch
         batch_size = real_imgs.size(0)
 
         # Train Discriminator
         # Generate fake images
         opt_d.zero_grad()
         z = torch.randn(batch_size, self.hparams.latent_dim, device=self.device)
-        fake_imgs = self(z)
+        cls_embedding = self.generator.embedding(cls_number)
+        fake_imgs = self(z + cls_embedding)
 
         real_labels = torch.ones(batch_size, device=self.device)
         fake_labels = torch.zeros(batch_size, device=self.device)
@@ -128,7 +132,8 @@ class DCGAN(pl.LightningModule):
 
     def validation_step(self, batch, batch_idx):
         z = self.validation_z.to(self.device)
-        fake_imgs = self(z)
+        cls_embedding = self.cls_embedding.to(self.device)
+        fake_imgs = self(z + cls_embedding)
 
         # Log sample images
         if batch_idx == 0:
