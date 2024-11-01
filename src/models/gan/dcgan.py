@@ -15,7 +15,7 @@ class Generator(nn.Module):
 
         self.main = nn.Sequential(
             # Input is latent_dim x 1 x 1
-            nn.ConvTranspose2d(latent_dim, feature_maps * 8, 4, 1, 0, bias=False),
+            nn.ConvTranspose2d(latent_dim * 2, feature_maps * 8, 4, 1, 0, bias=False),
             nn.BatchNorm2d(feature_maps * 8),
             nn.ReLU(True),
             # State: (feature_maps*8) x 4 x 4
@@ -32,17 +32,23 @@ class Generator(nn.Module):
             # Output: 1 x 32 x 32
         )
 
-    def forward(self, x):
+    def forward(self, x, labels):
         x = x.view(x.size(0), self.latent_dim, 1, 1)
+        cls_embedding = self.embedding(labels).view(-1, self.latent_dim, 1, 1)
+        x = torch.cat([x, cls_embedding], dim=1)
         return self.main(x)
 
 
 class Discriminator(nn.Module):
     def __init__(self, feature_maps: int = 64):
         super().__init__()
+        self.feature_maps = feature_maps
+
+        self.embedding = nn.Embedding(10, 32 * 32)
+
         self.main = nn.Sequential(
             # Input: 1 x 32 x 32
-            nn.Conv2d(1, feature_maps, 4, 2, 1, bias=False),
+            nn.Conv2d(2, feature_maps, 4, 2, 1, bias=False),
             nn.LeakyReLU(0.2, inplace=True),
             # State: feature_maps x 16 x 16
             nn.Conv2d(feature_maps, feature_maps * 2, 4, 2, 1, bias=False),
@@ -54,11 +60,14 @@ class Discriminator(nn.Module):
             nn.LeakyReLU(0.2, inplace=True),
             # State: (feature_maps*4) x 4 x 4
             nn.Conv2d(feature_maps * 4, 1, 4, 1, 0, bias=False),
-            nn.Sigmoid(),
             # Output: 1 x 1 x 1
         )
 
-    def forward(self, x):
+    def forward(self, x, labels):
+        cls_embedding = self.embedding(labels).view(
+            -1, 1, 32, 32
+        )  # Same size as input 1 x 32 x 32
+        x = torch.cat([x, cls_embedding], dim=1)
         return self.main(x).view(-1, 1).squeeze(1)
 
 
@@ -80,49 +89,65 @@ class DCGAN(pl.LightningModule):
 
         # Random noise for visualization
         self.validation_z = torch.randn(10, latent_dim)
-        self.cls_embedding = self.generator.embedding(torch.arange(10))
+        self.validation_labels = torch.arange(10)
 
-    def forward(self, z):
-        return self.generator(z)
+    def forward(self, z, labels):
+        return self.generator(z, labels)
 
     def adversarial_loss(self, y_hat, y):
-        return F.binary_cross_entropy(y_hat, y)
+        return F.binary_cross_entropy_with_logits(y_hat, y)
 
-    def training_step(self, batch, batch_idx):
-        opt_d, opt_g = self.optimizers()
-        real_imgs, cls_number = batch
-        batch_size = real_imgs.size(0)
+    def train_generator(self, data, batch_size, optimizer):
+        fake_imgs, fake_cls_labels = data
+        optimizer.zero_grad()
 
-        # Train Discriminator
+        preds = self.discriminator(fake_imgs, fake_cls_labels)
+        real_labels = torch.ones(batch_size, device=self.device)
+
+        g_loss = self.adversarial_loss(preds, real_labels)
+        self.manual_backward(g_loss)
+        optimizer.step()
+        return g_loss
+
+    def train_discriminator(self, data, batch_size, optimizer):
+        real_imgs, cls_labels = data
+        optimizer.zero_grad()
+
         # Generate fake images
-        opt_d.zero_grad()
         z = torch.randn(batch_size, self.hparams.latent_dim, device=self.device)
-        cls_embedding = self.generator.embedding(cls_number)
-        fake_imgs = self(z + cls_embedding)
+        fake_cls_labels = torch.randint(0, 10, (batch_size,), device=self.device)
+        fake_imgs = self.generator(z, fake_cls_labels)
 
         real_labels = torch.ones(batch_size, device=self.device)
         fake_labels = torch.zeros(batch_size, device=self.device)
 
         # Real images
-        real_preds = self.discriminator(real_imgs)
+        real_preds = self.discriminator(real_imgs, cls_labels)
         d_real_loss = self.adversarial_loss(real_preds, real_labels)
 
         # Fake images
-        fake_preds = self.discriminator(fake_imgs.detach())
+        fake_preds = self.discriminator(fake_imgs.detach(), fake_cls_labels)
         d_fake_loss = self.adversarial_loss(fake_preds, fake_labels)
 
         # Total discriminator loss
         d_loss = (d_real_loss + d_fake_loss) / 2
         self.manual_backward(d_loss)
-        opt_d.step()
+        optimizer.step()
+
+        return d_loss, fake_imgs, fake_cls_labels
+
+    def training_step(self, batch, batch_idx):
+        opt_d, opt_g = self.optimizers()
+        real_imgs, cls_labels = batch
+        batch_size = real_imgs.size(0)
+
+        # Train Discriminator
+        d_loss, fake_imgs, fake_cls_labels = self.train_discriminator(
+            (real_imgs, cls_labels), batch_size, opt_d
+        )
 
         # Train Generator
-        opt_g.zero_grad()
-        preds = self.discriminator(fake_imgs)
-
-        g_loss = self.adversarial_loss(preds, real_labels)
-        self.manual_backward(g_loss)
-        opt_g.step()
+        g_loss = self.train_generator((fake_imgs, fake_cls_labels), batch_size, opt_g)
 
         # Logging
         self.log("g_loss", g_loss, prog_bar=True)
@@ -132,8 +157,8 @@ class DCGAN(pl.LightningModule):
 
     def validation_step(self, batch, batch_idx):
         z = self.validation_z.to(self.device)
-        cls_embedding = self.cls_embedding.to(self.device)
-        fake_imgs = self(z + cls_embedding)
+        labels = self.validation_labels.to(self.device)
+        fake_imgs = self(z, labels)
 
         # Log sample images
         if batch_idx == 0:
