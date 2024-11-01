@@ -37,10 +37,10 @@ def main():
     checkpoint_dirpath = Path("./checkpoints/dcgan")
     checkpoint_dirpath.mkdir(parents=True, exist_ok=True)
     checkpoint_callback = ModelCheckpoint(
-        monitor="g_loss",
         dirpath=checkpoint_dirpath,
-        filename="dcgan-{epoch:02d}-{g_loss:.2f}",
-        mode="min",
+        filename="dcgan-{epoch:02d}",
+        save_last=True,
+        save_top_k=0,
     )
 
     # Logger
