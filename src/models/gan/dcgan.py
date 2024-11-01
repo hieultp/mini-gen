@@ -94,6 +94,7 @@ class DCGAN(pl.LightningModule):
     def forward(self, z, labels):
         return self.generator(z, labels)
 
+    @torch.inference_mode()
     def sample(
         self,
         num_samples: int,
