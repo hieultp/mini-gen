@@ -94,6 +94,19 @@ class DCGAN(pl.LightningModule):
     def forward(self, z, labels):
         return self.generator(z, labels)
 
+    def sample(
+        self,
+        num_samples: int,
+        labels: torch.Tensor | list[int] = None,
+        device: str = "cuda",
+    ):
+        z = torch.randn(num_samples, self.hparams.latent_dim, device=device)
+        if labels is None:
+            labels = torch.randint(0, 10, (num_samples,), device=device)
+        if not isinstance(labels, torch.Tensor):
+            labels = torch.tensor(labels, device=device)
+        return self(z, labels)
+
     def adversarial_loss(self, y_hat, y):
         return F.binary_cross_entropy_with_logits(y_hat, y)
 
