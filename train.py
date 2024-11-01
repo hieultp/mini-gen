@@ -7,7 +7,7 @@ from pytorch_lightning.callbacks import ModelCheckpoint
 from pytorch_lightning.loggers import TensorBoardLogger
 
 from src.datasets.mnist import MNISTDataModule
-from src.models.gan.dcgan import DCGAN
+from src.models.diffusion.ddpm import DiffusionModel
 
 
 def main():
@@ -15,7 +15,7 @@ def main():
         torch.set_float32_matmul_precision("medium")
 
     # Load config
-    with open("configs/dcgan.yaml") as f:
+    with open("configs/ddpm.yaml") as f:
         config = yaml.safe_load(f)
 
     # Initialize data module
@@ -26,25 +26,24 @@ def main():
     )
 
     # Initialize model
-    model = DCGAN(
-        latent_dim=config["model"]["latent_dim"],
-        feature_maps=config["model"]["feature_maps"],
-        lr=config["model"]["lr"],
-        beta1=config["model"]["beta1"],
+    model = DiffusionModel(
+        timesteps=config["model"]["timesteps"],
+        beta_start=config["model"]["beta_start"],
+        beta_end=config["model"]["beta_end"],
     )
 
     # Callbacks
-    checkpoint_dirpath = Path("./checkpoints/dcgan")
+    checkpoint_dirpath = Path("./checkpoints/ddpm")
     checkpoint_dirpath.mkdir(parents=True, exist_ok=True)
     checkpoint_callback = ModelCheckpoint(
         dirpath=checkpoint_dirpath,
-        filename="dcgan-{epoch:02d}",
+        filename="ddpm-{epoch:02d}",
         save_last=True,
         save_top_k=0,
     )
 
     # Logger
-    logger = TensorBoardLogger("logs", name="dcgan")
+    logger = TensorBoardLogger("logs", name="ddpm")
 
     # Initialize trainer
     trainer = pl.Trainer(
