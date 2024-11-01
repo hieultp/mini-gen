@@ -34,7 +34,8 @@ def main():
     )
 
     # Callbacks
-    checkpoint_dirpath = Path("checkpoints/dcgan").mkdir(parents=True, exist_ok=True)
+    checkpoint_dirpath = Path("./checkpoints/dcgan")
+    checkpoint_dirpath.mkdir(parents=True, exist_ok=True)
     checkpoint_callback = ModelCheckpoint(
         monitor="g_loss",
         dirpath=checkpoint_dirpath,
